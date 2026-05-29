@@ -1,0 +1,287 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ================= ENUMS =================
+enum Role {
+  ADMIN
+  LEADER
+  SALES
+  AGENCY_ACCOUNT // Cho tương lai Dealer Portal
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  CANCELED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+// ================= CORE SYSTEM =================
+
+model Region {
+  id        String   @id @default(uuid())
+  name      String   @unique // vd: Miền Bắc, Miền Nam
+  users     User[]
+  agencies  Agency[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+}
+
+model User {
+  id          String    @id @default(uuid())
+  email       String    @unique
+  phone       String?   @unique
+  password    String
+  name        String
+  role        Role      @default(SALES)
+  
+  // Hierarchy & Region
+  leaderId    String?
+  leader      User?     @relation("LeaderToSales", fields: [leaderId], references: [id], onDelete: SetNull)
+  sales       User[]    @relation("LeaderToSales")
+  regionId    String?
+  region      Region?   @relation(fields: [regionId], references: [id])
+
+  // Relations
+  agencies    Agency[]
+  orders      Order[]
+  visits      Visit[]
+  commissions Commission[]
+  kpiTargets  KpiTarget[]
+  auditLogs   AuditLog[]
+
+  // Meta
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([role])
+  @@index([regionId])
+  @@index([leaderId])
+}
+
+// ================= CRM & SALES =================
+
+model Agency {
+  id           String    @id @default(uuid())
+  code         String    @unique // Mã ĐL (sinh tự động)
+  name         String
+  phone        String    @unique
+  address      String
+  
+  // GIS
+  lat          Decimal?  @db.Decimal(10, 8)
+  lng          Decimal?  @db.Decimal(11, 8)
+  
+  // Financial (Dùng Decimal tránh lỗi dấu phẩy động)
+  creditLimit  Decimal   @default(0) @db.Decimal(15, 2)
+  currentDebt  Decimal   @default(0) @db.Decimal(15, 2)
+  
+  // Relations
+  salesId      String
+  sales        User      @relation(fields: [salesId], references: [id], onDelete: Restrict)
+  regionId     String?
+  region       Region?   @relation(fields: [regionId], references: [id])
+  
+  orders       Order[]
+  payments     Payment[]
+  visits       Visit[]
+
+  // Meta
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([salesId])
+  @@index([regionId])
+  @@index([code])
+}
+
+model Product {
+  id          String      @id @default(uuid())
+  sku         String      @unique
+  name        String
+  price       Decimal     @db.Decimal(15, 2)
+  
+  orderItems  OrderItem[]
+  
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  @@index([sku])
+}
+
+// ================= TRANSACTIONAL (ORDERS & PAYMENTS) =================
+
+model Order {
+  id            String        @id @default(uuid())
+  code          String        @unique // Mã đơn hàng ngắn gọn
+  
+  agencyId      String
+  agency        Agency        @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  salesId       String
+  sales         User          @relation(fields: [salesId], references: [id], onDelete: Restrict)
+  
+  totalAmount   Decimal       @db.Decimal(15, 2)
+  status        OrderStatus   @default(PENDING)
+  paymentStatus PaymentStatus @default(UNPAID)
+  
+  items         OrderItem[]
+  payments      Payment[]
+  
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+
+  @@index([agencyId])
+  @@index([salesId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  
+  quantity  Int
+  unitPrice Decimal  @db.Decimal(15, 2)
+  subTotal  Decimal  @db.Decimal(15, 2) // Cache lại subtotal
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  code          String   @unique // Mã phiếu thu
+  
+  agencyId      String
+  agency        Agency   @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  orderId       String?  // Có thể thanh toán chung chung không theo bill cụ thể
+  order         Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  
+  amount        Decimal  @db.Decimal(15, 2)
+  paymentMethod String   // CASH, BANK_TRANSFER
+  notes         String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([agencyId])
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+// ================= OPERATIONS & TRACKING =================
+
+model Visit {
+  id          String   @id @default(uuid())
+  salesId     String
+  sales       User     @relation(fields: [salesId], references: [id], onDelete: Cascade)
+  agencyId    String
+  agency      Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  
+  checkinTime DateTime @default(now())
+  lat         Decimal  @db.Decimal(10, 8)
+  lng         Decimal  @db.Decimal(11, 8)
+  imageUrl    String?
+  notes       String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([salesId])
+  @@index([agencyId])
+  @@index([checkinTime])
+}
+
+// ================= PERFORMANCE =================
+
+model KpiTarget {
+  id                 String   @id @default(uuid())
+  salesId            String
+  sales              User     @relation(fields: [salesId], references: [id], onDelete: Cascade)
+  month              Int
+  year               Int
+  
+  targetRevenue      Decimal  @db.Decimal(15, 2)
+  targetNewAgencies  Int
+  targetVisits       Int
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  @@unique([salesId, month, year])
+  @@index([month, year])
+}
+
+model Commission {
+  id               String   @id @default(uuid())
+  salesId          String
+  sales            User     @relation(fields: [salesId], references: [id], onDelete: Cascade)
+  month            Int
+  year             Int
+  
+  calculatedAmount Decimal  @db.Decimal(15, 2)
+  status           String   @default("PENDING")
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  @@unique([salesId, month, year])
+  @@index([status])
+}
+
+// ================= INFRASTRUCTURE =================
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String   // CREATE, UPDATE, DELETE
+  entity      String   // Order, Agency, Payment...
+  entityId    String   
+  oldData     Json?
+  newData     Json?
+  
+  createdAt   DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  body        String
+  type        String   // ALERT, SYSTEM, MESSAGE
+  isRead      Boolean  @default(false)
+  link        String?
+  
+  createdAt   DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
