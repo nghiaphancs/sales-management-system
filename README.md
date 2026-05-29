@@ -2,11 +2,9 @@
 
 AuraSales là một hệ thống quản lý đại lý và bán hàng toàn diện, được xây dựng với kiến trúc hiện đại, cho phép quản lý công nợ, đơn hàng, người dùng (Admin, Leader, Sales), cùng với hệ thống cảnh báo và xử lý hoa hồng tự động (Background Jobs).
 
-## 🚀 Công nghệ sử dụng (Tech Stack)
-* **Frontend:** Next.js (App Router), TailwindCSS, Shadcn UI, Zustand.
-* **Backend:** Node.js, Express, TypeScript, Prisma ORM, BullMQ.
-* **Database & Cache:** PostgreSQL (qua Neon), Redis.
-* **DevOps:** Docker, Nginx, Multi-stage builds.
+## 🎥 Product Demo
+
+👉 [Xem demo AuraSales](https://drive.google.com/file/d/1o4gNj8hxpbNGKQT6dD1-lQkl1OVDk_u1/view?usp=sharing)
 
 ---
 
